@@ -1,0 +1,11 @@
+torch
+torchvision
+opencv-python
+numpy
+matplotlib
+pandas
+Pillow
+tqdm
+gdown
+rarfile
+pathlib
