@@ -1,6 +1,12 @@
 import os
+import torch
 import gdown
 import rarfile
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+
+matplotlib.use('Agg')
 
 def download_train_dataset():
 
@@ -33,4 +39,21 @@ def download_train_dataset():
 
     print("Done.")
 
+def plot_result(image, enhanced):
 
+    if isinstance(image, torch.Tensor):
+        image = image.squeeze(0).permute(1, 2, 0).cpu().numpy()  # (C, H, W) -> (H, W, C)
+    if isinstance(enhanced, torch.Tensor):
+        enhanced = enhanced.squeeze(0).permute(1, 2, 0).cpu().numpy()
+
+    fig = plt.figure(figsize=(12,12))
+    fig.add_subplot(1,2,1).set_title('Original Image')
+    _ = plt.imshow(image)
+    fig.add_subplot(1,2,2).set_title('Enhanced Image')
+    _ = plt.imshow(enhanced)
+
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+    save_path = os.path.join(os.getcwd(), "outputs", "output.png")
+
+    plt.savefig(save_path)  # Save the figure as a file
