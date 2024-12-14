@@ -41,7 +41,8 @@ class Trainer:
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=num_workers
+            num_workers=num_workers,
+            pin_memory=True
         )
 
         self.val_loader = DataLoader(
@@ -53,7 +54,7 @@ class Trainer:
 
     # Build the DCENet
     def build_model(self, pretrain_weights=None):
-        self.model = DCENet().to(self.device)
+        self.model = DCENet().cuda()
         self.model.apply(init_weights)
 
         if pretrain_weights is not None:
@@ -64,10 +65,10 @@ class Trainer:
         self.build_model(pretrain_weights=pretrain_weights)
 
         # define the loss functions
-        self.color_loss = ColorConstancyLoss().to(self.device)
-        self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).to(self.device)
-        self.illumination_smoothing_loss = IlluminationSmoothnessLoss().to(self.device)
-        self.spatial_consistency_loss = SpatialConsistencyLoss().to(self.device)
+        self.color_loss = ColorConstancyLoss().cuda()
+        self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).cuda()
+        self.illumination_smoothing_loss = IlluminationSmoothnessLoss().cuda()
+        self.spatial_consistency_loss = SpatialConsistencyLoss().cuda()
 
         # define the optimizer
         self.optimizer = torch.optim.Adam(
@@ -76,7 +77,7 @@ class Trainer:
             weight_decay=weight_decay
         )
 
-    def train(self, n_epochs=200, log_frequency=100):
+    def train(self, n_epochs=200, log_frequency=100, notebook=True):
 
         for epoch in range(n_epochs):
             print(f"Epoch {epoch+1}/{n_epochs}: ")
@@ -85,11 +86,15 @@ class Trainer:
             # Switch the model to training mode
             self.model.train()
 
+            if notebook:
+                from tqdm.notebook import tqdm as tqdm_notebook
+                tqdm = tqdm_notebook
+
             train_loss = 0.0
 
             for batch, lowlight_image in enumerate(tqdm(self.train_loader)):
                 # Load the batch data low light image
-                lowlight_image = lowlight_image.to(self.device)
+                lowlight_image = lowlight_image.cuda()
 
                 # Forward pass
                 # A = curve parameter tensor
@@ -163,7 +168,7 @@ class Trainer:
                 torchvision.transforms.ToTensor()
             ])
 
-            lowlight_image = transform(lowlight_image).unsqueeze(0).to(self.device)
+            lowlight_image = transform(lowlight_image).unsqueeze(0).cuda()
 
             _, enhanced_image_final, _ = self.model(lowlight_image)
 
