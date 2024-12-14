@@ -59,11 +59,11 @@ class DCENet(nn.Module):
         r = torch.cat([r1, r2, r3, r4, r5, r6, r7, r8], dim=1)
         return enhanced_image_1, enhanced_image_final, r
 
-# The filter weights of each layer are initialized with standard zero mean and 0.02 standard deviation Gaussian function
-    def init_weights(m):
-        class_name = m.__class__.__name__
-        if class_name.find('Conv') != -1:
-            m.weight.data.normal_(0.0, 0.02)
-        elif class_name.find('BatchNorm') != -1:
-            m.weight.data.normal_(1.0, 0.02)
-            m.bias.data.fill_(0)
+# The filter weights of each convolution layer (nn.Conv2d) are initialized with standard zero mean and 0.02 standard deviation Gaussian function
+def init_weights(m):
+    class_name = m.__class__.__name__
+    if class_name.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif class_name.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
