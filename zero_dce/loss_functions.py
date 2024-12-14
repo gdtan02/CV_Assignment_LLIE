@@ -10,11 +10,11 @@ class ColorConstancyLoss(nn.Module):
     def __init__(self):
         super(ColorConstancyLoss, self).__init__()
 
-    def forward(self, x, y):
+    def forward(self, enhanced_image):
         # Compute the mean intensity for each RGB channel across spatial dimensions (H x W)
         # Shape of x tensor: (batch_size, color_channels=3, H, W)
         # Shape of mean_rgb tensor: (batch_size, color_channels=3, 1, 1)
-        mean_rgb = torch.mean(x, dim=(2, 3), keepdim=True)
+        mean_rgb = torch.mean(enhanced_image, dim=(2, 3), keepdim=True)
 
         # Split the mean_rgb tensor into 3 separate tensors for each RGB channel
         mr, mg, mb = mean_rgb[:, 0], mean_rgb[:, 1], mean_rgb[:, 2]
@@ -38,11 +38,11 @@ class ExposureControlLoss(nn.Module):
         self.pool = nn.AvgPool2d(patch_size)
         self.E = mean_val
 
-    def forward(self, x):
-        x = torch.mean(x, dim=1, keepdim=True)
-        mean = self.pool(x)
+    def forward(self, enhanced_image):
+        enhanced_image = torch.mean(enhanced_image, dim=1, keepdim=True)
+        mean = self.pool(enhanced_image)
 
-        return torch.mean(torch.pow(mean - torch.FloatTensor([self.E]).to(x.device), 2))
+        return torch.mean(torch.pow(mean - torch.FloatTensor([self.E]).to(enhanced_image.device), 2))
 
 # Illumination Smoothness Loss
 # This loss function is used to preserve the monotonicity relations between neighboring pixels
@@ -51,21 +51,22 @@ class IlluminationSmoothnessLoss(nn.Module):
 
     def __init__(self, loss_weight=1):
         super(IlluminationSmoothnessLoss, self).__init__()
+        self.loss_weight = loss_weight
 
     # X shape: (batch_size, 24, H, W)
-    def forward(self, x):
-        batch_size = x.size()[0]
-        h_x = x.size()[2]  # height
-        w_x = x.size()[3]  # width
+    def forward(self, enhanced_image):
+        batch_size = enhanced_image.size()[0]
+        h_x = enhanced_image.size()[2]  # height
+        w_x = enhanced_image.size()[3]  # width
 
         # Calculate the total number of vertical and horizontal differences
         count_h = (h_x-1) * w_x
         count_w = h_x * (w_x-1)
 
         # Sum of squared vertical differences between adjacent pixels
-        h_tv = torch.pow((x[:, :, 1:, :] - x[:, :, :h_x-1, :]), 2).sum()
+        h_tv = torch.pow((enhanced_image[:, :, 1:, :] - enhanced_image[:, :, :h_x-1, :]), 2).sum()
         # Sum of squared horizontal differences between adjacent pixels
-        w_tv = torch.pow((x[:, :, :, 1:] - x[:, :, :, :w_x-1]), 2).sum()
+        w_tv = torch.pow((enhanced_image[:, :, :, 1:] - enhanced_image[:, :, :, :w_x-1]), 2).sum()
 
         return self.loss_weight * (h_tv / count_h + w_tv / count_w) / batch_size
 
@@ -89,7 +90,7 @@ class SpatialConsistencyLoss(nn.Module):
         self.weight_down = nn.Parameter(data=kernel_down, requires_grad=False)
         self.pool = nn.AvgPool2d(4)
 
-    def forward(self, org_img, enhanced_img):
+    def forward(self, enhanced_img, org_img):
         org_mean = torch.mean(org_img, 1, keepdim=True)
         enhanced_mean = torch.mean(enhanced_img, 1, keepdim=True)
         org_pool = self.pool(org_mean)
