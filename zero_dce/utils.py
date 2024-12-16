@@ -39,7 +39,7 @@ def download_train_dataset():
 
     print("Done.")
 
-def plot_result(image, enhanced):
+def plot_result(image, enhanced, notebook=False):
 
     if isinstance(image, torch.Tensor):
         image = image.squeeze(0).permute(1, 2, 0).cpu().numpy()  # (C, H, W) -> (H, W, C)
@@ -52,8 +52,11 @@ def plot_result(image, enhanced):
     fig.add_subplot(1,2,2).set_title('Enhanced Image')
     _ = plt.imshow(enhanced)
 
-    if not os.path.exists("outputs"):
-        os.makedirs("outputs")
-    save_path = os.path.join(os.getcwd(), "outputs", "output.png")
+    if notebook:
+        plt.show()
+    else:
+        if not os.path.exists("outputs"):
+            os.makedirs("outputs")
+        save_path = os.path.join(os.getcwd(), "outputs", "output.png")
 
-    plt.savefig(save_path)  # Save the figure as a file
+        plt.savefig(save_path)  # Save the figure as a file
