@@ -39,6 +39,35 @@ def download_train_dataset():
 
     print("Done.")
 
+def download_test_dataset():
+
+    if not os.path.exists("data"):
+        os.makedirs("data")
+
+    data_dir = os.path.join(os.getcwd(), "data")
+
+    dataset_path = os.path.join(data_dir, "DarkPair.zip")
+    print("Dataset file path = ", dataset_path)
+
+    print(f"Downloading the Dark Face dataset to {dataset_path}...")
+
+    if os.path.exists(dataset_path):
+        print(f"File {dataset_path} already exists.")
+    else:
+        gdown.download(
+            url="https://drive.google.com/uc?id=11KaOhxcOh68_NyZwacBoabEJ6FgPCsnQ",
+            output=str(dataset_path),
+            quiet=False
+        )
+
+        print("Unzip the Dark Face dataset...")
+        try:
+            os.system(f"unzip {dataset_path} -d {data_dir}")
+        except Exception as e:
+            print(f"Failed to unzip the Dark Face dataset: {e}")
+
+    print("Done.")
+
 def plot_result(image, enhanced, notebook=False):
 
     if isinstance(image, torch.Tensor):
