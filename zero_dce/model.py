@@ -59,6 +59,39 @@ class DCENet(nn.Module):
         r = torch.cat([r1, r2, r3, r4, r5, r6, r7, r8], dim=1)
         return enhanced_image_1, enhanced_image_final, r
 
+class DenoisingAutoencoder(nn.Module):
+    def __init__(self):
+        super(DenoisingAutoencoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, 3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+            nn.Conv2d(32, 16, 3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.MaxPool2d(2, stride=2)
+        )
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(16, 32, 3, stride=2),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(32, 3, 3, stride=2),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+
+class EnhancedDCENet(nn.Module):
+    def __init__(self, n_filters=32):
+        super(EnhancedDCENet, self).__init__()
+
+        self.denoising_autoencoder = DenoisingAutoencoder()
+        self.dce_net = DCENet(n_filters=n_filters)
+
+    def forward(self, x):
+        denoised_image = self.denoising_autoencoder(x)
+        enhanced_image_1, enhanced_image_final, A = self.dce_net(denoised_image)
+        return enhanced_image_1, enhanced_image_final
+
 # The filter weights of each convolution layer (nn.Conv2d) are initialized with standard zero mean and 0.02 standard deviation Gaussian function
 def init_weights(m):
     class_name = m.__class__.__name__

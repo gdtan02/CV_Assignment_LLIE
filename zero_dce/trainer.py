@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .model import DCENet, init_weights
+from .model import DCENet, init_weights, EnhancedDCENet, DenoisingAutoencoder
 from .dataloader import SICEDataset
 from .loss_functions import *
 
@@ -55,6 +55,14 @@ class Trainer:
     # Build the DCENet
     def build_model(self, pretrain_weights=None):
         self.model = DCENet().cuda()
+        self.model.apply(init_weights)
+
+        if pretrain_weights is not None:
+            self.load_weights(pretrain_weights)
+
+    # Build the enhanced DCENet
+    def build_enhanced_model(self, pretrain_weights=None):
+        self.model = EnhancedDCENet().cuda()
         self.model.apply(init_weights)
 
         if pretrain_weights is not None:
