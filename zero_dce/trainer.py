@@ -16,6 +16,8 @@ class Trainer:
         self.train_loader = None
         self.val_loader = None
         self.model = None
+        self.dae = None
+        self.enhanced_model = None
         self.color_loss = None
         self.exposure_loss = None
         self.illumination_smoothing_loss = None
@@ -60,13 +62,23 @@ class Trainer:
         if pretrain_weights is not None:
             self.load_weights(pretrain_weights)
 
-    # Build the enhanced DCENet
-    def build_enhanced_model(self, pretrain_weights=None):
-        self.model = EnhancedDCENet().cuda()
-        self.model.apply(init_weights)
+    def build_dae(self, pretrain_weights=None):
+        self.dae = DenoisingAutoencoder().cuda()
+        self.dae.apply(init_weights)
 
         if pretrain_weights is not None:
-            self.load_weights(pretrain_weights)
+            self.dae.load_state_dict(torch.load(pretrain_weights))
+
+    # Build the enhanced DCENet
+    def build_enhanced_model(self, pretrain_weights=None):
+        dce_net = self.model if self.model is not None else self.build_model()
+        dae = self.dae if self.dae is not None else self.build_dae()
+
+        self.enhanced_model = EnhancedDCENet(dce_net, dae).cuda()
+        self.enhanced_model.apply(init_weights)
+
+        if pretrain_weights is not None:
+            self.enhanced_model(torch.load(pretrain_weights))
 
     def compile(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
         # build the model
