@@ -1,15 +1,15 @@
 import os
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 import torchvision
-import numpy as np
 from PIL import Image
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
-from .model import DCENet, init_weights, EnhancedDCENet, DenoisingAutoencoder
+
 from .dataloader import SICEDataset
 from .loss_functions import *
+from .model import DCENet, init_weights, EnhancedDCENet, DenoisingAutoencoder
+
 
 class Trainer:
 
@@ -123,12 +123,22 @@ class Trainer:
         if pretrain_weights is not None:
             self.model.load_state_dict(torch.load(pretrain_weights))
 
+        if self.model is not None:
+            print("Model built successfully")
+        else:
+            raise ValueError("Model not built")
+
     def build_dae(self, pretrain_weights=None):
         self.dae = DenoisingAutoencoder().cuda()
         self.dae.apply(init_weights)
 
         if pretrain_weights is not None:
             self.dae.load_state_dict(torch.load(pretrain_weights))
+
+        if self.dae is not None:
+            print("DAE built successfully")
+        else:
+            raise ValueError("DAE not built")
 
     # Build the enhanced DCENet
     def build_enhanced_model(self, pretrain_weights=None):
@@ -140,6 +150,11 @@ class Trainer:
 
         if pretrain_weights is not None:
             self.enhanced_model(torch.load(pretrain_weights))
+
+        if self.enhanced_model is not None:
+            print("Enhanced model built successfully")
+        else:
+            raise ValueError("Enhanced model not built")
 
     def compile(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
         # build the model
@@ -229,10 +244,10 @@ class Trainer:
                 # Save the model checkpoints every 20 epochs
                 self.save_model(save_path=f'epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    def train_dae(self, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
+    def train_dae(self, dce_net, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
 
         image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
-        conv4_features = self._extract_conv4_features(self.model, image_loader)
+        conv4_features = self._extract_conv4_features(dce_net, image_loader)
         noisy_features = self._add_noise(conv4_features)
 
         dataset = TensorDataset(noisy_features, conv4_features)
@@ -300,8 +315,8 @@ class Trainer:
                     val_loss += loss.item()
 
             if epoch % 20 == 0:
-                train_loss = train_loss / len(self.train_loader)
-                val_loss = val_loss / len(self.val_loader)
+                train_loss = train_loss / len(self.dae_train_loader)
+                val_loss = val_loss / len(self.dae_val_loader)
                 print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
 
                 self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
@@ -369,14 +384,13 @@ class Trainer:
 
     def _extract_conv4_features(self, model, dataset):
 
-        model.to(self.device)
         model.eval()
 
         features = []
 
         with torch.no_grad():
             for lowlight_image in tqdm(dataset):
-                lowlight_image = lowlight_image.to(self.device)
+                lowlight_image = lowlight_image.cuda()
 
                 x1 = model.conv1(lowlight_image)
                 x2 = model.conv2(x1)
