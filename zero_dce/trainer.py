@@ -241,7 +241,7 @@ class Trainer:
                 # Save the model checkpoints every 20 epochs
                 self.save_model(save_path=f'epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    def train_DAE(self, num_epochs=10, learning_rate=0.001, notebook=True):
+    def train_dae(self, n_epochs=10, learning_rate=0.001, notebook=True):
 
         if self.dae is None:
             raise ValueError("Model is not built")
@@ -269,7 +269,7 @@ class Trainer:
         else:
             from tqdm import tqdm
 
-        for epoch in range(num_epochs):
+        for epoch in range(n_epochs):
             train_loss = 0.0
             self.dae.train()
 
@@ -306,7 +306,7 @@ class Trainer:
             print(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
 
             if epoch % 20 == 0:
-                self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+                self.save_model(self.dae, save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
 
     # def train_dae(self, dce_net, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
