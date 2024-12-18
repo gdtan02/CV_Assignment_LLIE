@@ -450,7 +450,7 @@ class Trainer:
                 val_losses = val_losses / len(self.val_loader)
                 print(f"Epoch {epoch} - Train Loss: {train_losses:.4f}, Validation Loss: {val_losses:.4f}")
 
-                self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+                self.save_model(self.enhanced_model, save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
     def extract_conv4_features(self, dce_net, image_loader):
 
