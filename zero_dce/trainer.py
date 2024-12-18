@@ -117,7 +117,7 @@ class Trainer:
 
     # Build the DCENet
     def build_model(self, pretrain_weights=None):
-        self.model = DCENet().cuda()
+        self.model = DCENet().to(self.device)
         self.model.apply(init_weights)
 
         if pretrain_weights is not None:
@@ -128,12 +128,9 @@ class Trainer:
         else:
             raise ValueError("Model not built")
 
-    def build_dae(self, pretrain_weights=None):
-        self.dae = DenoisingAutoencoder().cuda()
+    def build_dae(self):
+        self.dae = DenoisingAutoencoder()
         self.dae.apply(init_weights)
-
-        if pretrain_weights is not None:
-            self.dae.load_state_dict(torch.load(pretrain_weights))
 
         if self.dae is not None:
             print("DAE built successfully")
@@ -145,7 +142,7 @@ class Trainer:
         dce_net = self.model
         dae = self.dae
 
-        self.enhanced_model = EnhancedDCENet(dce_net, dae).cuda()
+        self.enhanced_model = EnhancedDCENet(dce_net, dae).to(self.device)
         self.enhanced_model.apply(init_weights)
 
         if pretrain_weights is not None:
@@ -161,10 +158,10 @@ class Trainer:
         self.build_model(pretrain_weights=pretrain_weights)
 
         # define the loss functions
-        self.color_loss = ColorConstancyLoss().cuda()
-        self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).cuda()
-        self.illumination_smoothing_loss = IlluminationSmoothnessLoss().cuda()
-        self.spatial_consistency_loss = SpatialConsistencyLoss().cuda()
+        self.color_loss = ColorConstancyLoss().to(self.device)
+        self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).to(self.device)
+        self.illumination_smoothing_loss = IlluminationSmoothnessLoss().to(self.device)
+        self.spatial_consistency_loss = SpatialConsistencyLoss().to(self.device)
 
         # define the optimizer
         self.optimizer = torch.optim.Adam(
@@ -193,7 +190,7 @@ class Trainer:
 
             for batch_idx, lowlight_image in enumerate(tqdm(self.train_loader)):
                 # Load the batch data low light image
-                lowlight_image = lowlight_image.cuda()
+                lowlight_image = lowlight_image.to(self.device)
 
                 # Forward pass
                 # A = curve parameter tensor
@@ -244,55 +241,45 @@ class Trainer:
                 # Save the model checkpoints every 20 epochs
                 self.save_model(save_path=f'epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    def train_dae(self, dce_net, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
+    def train_DAE(self, num_epochs=10, learning_rate=0.001, notebook=True):
+
+        if self.dae is None:
+            raise ValueError("Model is not built")
 
         image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
-        conv4_features = self._extract_conv4_features(dce_net, image_loader)
-        noisy_features = self._add_noise(conv4_features)
+        conv4_features = self.extract_conv4_features(self.model, image_loader)
+        noisy_features = self.add_noise(conv4_features)
 
         dataset = TensorDataset(noisy_features, conv4_features)
         train_size = int(0.9 * len(dataset))
         val_size = len(dataset) - train_size
-        dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-        self.dae_train_loader = DataLoader(
-            dae_train_dataset,
-            batch_size=32,
-            shuffle=True,
-            num_workers=4,
-            pin_memory=True
-        )
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-        self.dae_val_loader = DataLoader(
-            dae_val_dataset,
-            batch_size=32,
-            shuffle=False,
-            num_workers=4
-        )
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-        optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        criterion = nn.MSELoss(reduction="sum").cuda()
+        self.dae.to(self.device)
 
-        for epoch in range(n_epochs):
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate)
 
+        if notebook:
+            from tqdm.notebook import tqdm as tqdm_notebook
+            tqdm = tqdm_notebook
+        else:
+            from tqdm import tqdm
+
+        for epoch in range(num_epochs):
+            train_loss = 0.0
             self.dae.train()
 
-            if notebook:
-                from tqdm.notebook import tqdm as tqdm_notebook
-                tqdm = tqdm_notebook
+            for noisy_image, clean_image in train_loader:
+                noisy_image = noisy_image.to(self.device)
+                clean_image = clean_image.to(self.device)
 
-            train_loss = 0.0
+                outputs = self.dae(noisy_image)
+                loss = criterion(outputs, clean_image)
 
-            for noisy_image, clean_image in self.dae_train_loader:
-                noisy_image = noisy_image.cuda()
-                clean_image = clean_image.cuda()
-
-                # Forward pass
-                denoised_image = self.dae(noisy_image)
-
-                # Compute loss
-                loss = criterion(denoised_image, clean_image).cuda()
-
-                # Backpropagation
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -304,7 +291,7 @@ class Trainer:
             val_loss = 0.0
 
             with torch.no_grad():
-                for noisy_image, clean_image in self.dae_val_loader:
+                for noisy_image, clean_image in val_loader:
                     noisy_image = noisy_image.cuda()
                     clean_image = clean_image.cuda()
 
@@ -314,12 +301,93 @@ class Trainer:
 
                     val_loss += loss.item()
 
-            if epoch % 20 == 0:
-                train_loss = train_loss / len(self.dae_train_loader)
-                val_loss = val_loss / len(self.dae_val_loader)
-                print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+            train_loss = train_loss / len(train_loader)
+            val_loss = val_loss / len(val_loader)
+            print(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
 
+            if epoch % 20 == 0:
                 self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+
+
+    # def train_dae(self, dce_net, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
+    #
+    #     image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
+    #     conv4_features = self._extract_conv4_features(dce_net, image_loader)
+    #     noisy_features = self._add_noise(conv4_features)
+    #
+    #     dataset = TensorDataset(noisy_features, conv4_features)
+    #     train_size = int(0.9 * len(dataset))
+    #     val_size = len(dataset) - train_size
+    #     dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    #     self.dae_train_loader = DataLoader(
+    #         dae_train_dataset,
+    #         batch_size=32,
+    #         shuffle=True,
+    #         num_workers=4,
+    #         pin_memory=True
+    #     )
+    #
+    #     self.dae_val_loader = DataLoader(
+    #         dae_val_dataset,
+    #         batch_size=32,
+    #         shuffle=False,
+    #         num_workers=4
+    #     )
+    #
+    #     optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    #     criterion = nn.MSELoss(reduction="sum").to(self.device)
+    #
+    #     for epoch in range(n_epochs):
+    #
+    #         self.dae.train()
+    #
+    #         if notebook:
+    #             from tqdm.notebook import tqdm as tqdm_notebook
+    #             tqdm = tqdm_notebook
+    #
+    #         train_loss = 0.0
+    #
+    #         for noisy_image, clean_image in self.dae_train_loader:
+    #             noisy_image = noisy_image.to(self.device)
+    #             clean_image = clean_image.to(self.device)
+    #
+    #             print("noisy image shape: ", noisy_image.shape)
+    #             print("clean image shape: ", clean_image.shape)
+    #
+    #             # Forward pass
+    #             denoised_image = self.dae(noisy_image)
+    #
+    #             # Compute loss
+    #             loss = criterion(denoised_image, clean_image).to(self.device)
+    #
+    #             # Backpropagation
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             optimizer.step()
+    #
+    #             train_loss += loss.item()
+    #
+    #         self.dae.eval()
+    #
+    #         val_loss = 0.0
+    #
+    #         with torch.no_grad():
+    #             for noisy_image, clean_image in self.dae_val_loader:
+    #                 noisy_image = noisy_image.to(self.device)
+    #                 clean_image = clean_image.to(self.device)
+    #
+    #                 denoised_image = self.dae(noisy_image)
+    #
+    #                 loss = criterion(denoised_image, clean_image)
+    #
+    #                 val_loss += loss.item()
+    #
+    #         if epoch % 20 == 0:
+    #             train_loss = train_loss / len(self.dae_train_loader)
+    #             val_loss = val_loss / len(self.dae_val_loader)
+    #             print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+    #
+    #             self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
     def train_enhanced_model(self, n_epochs=200, log_frequency=100, notebook=True):
 
@@ -337,7 +405,7 @@ class Trainer:
             train_losses = 0.0
 
             for batch_idx, lowlight_image in enumerate(tqdm(self.train_loader)):
-                low_light_image = low_light_image.cuda()
+                low_light_image = low_light_image.to(self.device)
 
                 enhanced_image_1, enhanced_image_final, A = self.enhanced_model(lowlight_image)
 
@@ -381,27 +449,22 @@ class Trainer:
 
                 self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
+    def extract_conv4_features(self, dce_net, image_loader):
 
-    def _extract_conv4_features(self, model, dataset):
-
-        model.eval()
-
+        dce_net.eval()
         features = []
-
         with torch.no_grad():
-            for lowlight_image in tqdm(dataset):
-                lowlight_image = lowlight_image.cuda()
-
-                x1 = model.conv1(lowlight_image)
-                x2 = model.conv2(x1)
-                x3 = model.conv3(x2)
-                x4 = model.conv4(x3)
+            for images in image_loader:
+                images = images.to(self.device)
+                x1 = dce_net.conv1(images)
+                x2 = dce_net.conv2(x1)
+                x3 = dce_net.conv3(x2)
+                x4 = dce_net.conv4(x3)
                 features.append(x4.cpu())
-
         return torch.cat(features)
 
     # Add synthetic noise to the image
-    def _add_noise(self, image, noise_factor=0.1):
+    def add_noise(self, image, noise_factor=0.1):
         noisy_image = image + noise_factor * torch.randn_like(image)
         return torch.clip(noisy_image, 0, 1)
 
@@ -424,7 +487,7 @@ class Trainer:
                 torchvision.transforms.ToTensor()
             ])
 
-            lowlight_image = transform(lowlight_image).unsqueeze(0).cuda()
+            lowlight_image = transform(lowlight_image).unsqueeze(0).to(self.device)
 
             _, enhanced_image_final, _ = model(lowlight_image)
 
