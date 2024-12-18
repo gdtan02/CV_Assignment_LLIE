@@ -231,12 +231,6 @@ class Trainer:
 
     def train_dae(self, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
 
-        if self.dae is None or self.model is None:
-            raise ValueError("Model is not built")
-
-        if self.train_loader is None:
-            raise ValueError("Training data is not loaded")
-
         image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
         conv4_features = self._extract_conv4_features(self.model, image_loader)
         noisy_features = self._add_noise(conv4_features)
