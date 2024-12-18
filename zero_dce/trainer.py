@@ -132,8 +132,8 @@ class Trainer:
 
     # Build the enhanced DCENet
     def build_enhanced_model(self, pretrain_weights=None):
-        dce_net = self.model if self.model is not None else self.build_model()
-        dae = self.dae if self.dae is not None else self.build_dae()
+        dce_net = self.model
+        dae = self.dae
 
         self.enhanced_model = EnhancedDCENet(dce_net, dae).cuda()
         self.enhanced_model.apply(init_weights)
