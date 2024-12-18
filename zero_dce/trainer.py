@@ -231,7 +231,7 @@ class Trainer:
 
     def train_dae(self, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
 
-        if self.dae or self.model is None:
+        if self.dae is None or self.model is None:
             raise ValueError("Model is not built")
 
         if self.train_loader is None:
