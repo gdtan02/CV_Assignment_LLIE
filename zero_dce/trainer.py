@@ -3,7 +3,7 @@ import torch
 import torchvision
 import numpy as np
 from PIL import Image
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from .model import DCENet, init_weights, EnhancedDCENet, DenoisingAutoencoder
 from .dataloader import SICEDataset
@@ -15,6 +15,8 @@ class Trainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.train_loader = None
         self.val_loader = None
+        self.dae_train_loader = None
+        self.dae_val_loader = None
         self.model = None
         self.dae = None
         self.enhanced_model = None
@@ -134,6 +136,9 @@ class Trainer:
 
     def train(self, n_epochs=200, log_frequency=100, notebook=True):
 
+        if self.model is None:
+            raise ValueError("Model is not built")
+
         for epoch in range(n_epochs):
             print(f"Epoch {epoch+1}/{n_epochs}: ")
 
@@ -202,6 +207,9 @@ class Trainer:
 
     def train_dae(self, n_epochs=100, log_frequency=100, notebook=True):
 
+        if self.dae is None:
+            raise ValueError("Denoising Autoencoder is not built")
+
         for epoch in range(n_epochs):
 
             self.dae.train()
@@ -212,7 +220,7 @@ class Trainer:
 
             train_loss = 0.0
 
-            for batch_idx, low_light_image in enumerate(tqdm(self.train_loader)):
+            for batch_idx, low_light_image in enumerate(tqdm(self.dae_train_loader)):
                 low_light_image = low_light_image.cuda()
 
                 # Forward pass
@@ -233,7 +241,7 @@ class Trainer:
             val_loss = 0.0
 
             with torch.no_grad():
-                for batch_idx, low_light_image in enumerate(tqdm(self.val_loader)):
+                for batch_idx, low_light_image in enumerate(tqdm(self.dae_val_loader)):
                     low_light_image = low_light_image.to(self.device)
 
                     denoised_image = self.dae(low_light_image)
@@ -250,6 +258,9 @@ class Trainer:
                 self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
     def train_enhanced_model(self, n_epochs=200, log_frequency=100, notebook=True):
+
+        if self.enhanced_model is None:
+            raise ValueError("Enhanced model is not built")
 
         for epoch in range(n_epochs):
 
@@ -306,14 +317,67 @@ class Trainer:
 
                 self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
+    def load_dae_data(self, image_size=256, batch_size=8, num_workers=4, val_split=0.1):
+        conv4_features = self._extract_conv4_features()
+        noisy_features = self._add_noise(conv4_features)
 
-    def save_model(self, save_path, save_dir="./models/checkpoints"):
+        dataset = TensorDataset(noisy_features, conv4_features)
+        val_size = int(val_split * len(dataset))
+        train_size = len(dataset) - val_size
+
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+        self.dae_train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+
+        self.dae_val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers
+        )
+
+
+    def _extract_conv4_features(self):
+        if self.model is None:
+            raise ValueError("Model is not built")
+
+        if self.train_loader is None:
+            raise ValueError("Data loader is not loaded")
+
+        self.model.eval()
+
+        features = []
+
+        with torch.no_grad():
+            for lowlight_image in tqdm(self.train_loader):
+                lowlight_image = lowlight_image.to(self.device)
+
+                x1 = self.model.conv1(lowlight_image)
+                x2 = self.model.conv2(x1)
+                x3 = self.model.conv3(x2)
+                x4 = self.model.conv4(x3)
+                features.append(x4.cpu())
+
+        return torch.cat(features)
+
+    # Add synthetic noise to the image
+    def _add_noise(self, image, noise_factor=0.1):
+        noisy_image = image + noise_factor * torch.randn_like(image)
+        return torch.clip(noisy_image, 0, 1)
+
+    def save_model(self, model, save_path, save_dir="./models/checkpoints"):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
         save_path = os.path.join(save_dir, save_path)
 
-        torch.save(self.model.state_dict(), save_path)
+        torch.save(model.state_dict(), save_path)
 
     def evaluate(self, model, image_path):
 
