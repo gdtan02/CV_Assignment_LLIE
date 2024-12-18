@@ -26,13 +26,48 @@ class Trainer:
 
     # Build the dataloader for training
     # image_path specifies the list of image files
-    def load_data(self, image_path, image_size=256, batch_size=8, num_workers=4):
+    def load_data(self, image_path, image_size=256, batch_size=8, num_workers=4, val_split=0.1):
+
+        if val_split < 0 or val_split > 1:
+            raise ValueError("Validation split must be between 0 and 1")
+
         dataset = SICEDataset(img_files=image_path, image_size=image_size)
 
-        print("Dataset: ", dataset)
         dataset_size = len(dataset)
         print("Dataset size: ", len(dataset))
-        val_size = int(0.1 * dataset_size)
+        val_size = int(val_split * dataset_size)
+        train_size = dataset_size - val_size
+        print("Train size: ", train_size)
+        print("Validation size: ", val_size)
+
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+
+        self.val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers
+        )
+
+    def load_custom_data(self, dataset, batch_size=8, num_workers=4, val_split=0.1):
+
+        if dataset is None:
+            raise ValueError("Please provide the datasets")
+
+        if val_split < 0 or val_split > 1:
+            raise ValueError("Validation split must be between 0 and 1")
+
+        dataset_size = len(dataset)
+        print("Dataset size: ", len(dataset))
+        val_size = int(val_split * dataset_size)
         train_size = dataset_size - val_size
         print("Train size: ", train_size)
         print("Validation size: ", val_size)
@@ -60,7 +95,7 @@ class Trainer:
         self.model.apply(init_weights)
 
         if pretrain_weights is not None:
-            self.load_weights(pretrain_weights)
+            self.model.load_state_dict(torch.load(pretrain_weights))
 
     def build_dae(self, pretrain_weights=None):
         self.dae = DenoisingAutoencoder().cuda()
@@ -112,7 +147,7 @@ class Trainer:
 
             train_loss = 0.0
 
-            for batch, lowlight_image in enumerate(tqdm(self.train_loader)):
+            for batch_idx, lowlight_image in enumerate(tqdm(self.train_loader)):
                 # Load the batch data low light image
                 lowlight_image = lowlight_image.cuda()
 
@@ -143,7 +178,7 @@ class Trainer:
 
             val_loss = 0.0
             with torch.no_grad():
-                for batch, lowlight_image in enumerate(tqdm(self.val_loader)):
+                for batch_idx, lowlight_image in enumerate(tqdm(self.val_loader)):
                     lowlight_image = lowlight_image.to(self.device)
 
                     enhanced_image_1, enhanced_image_final, A = self.model(lowlight_image)
@@ -165,9 +200,112 @@ class Trainer:
                 # Save the model checkpoints every 20 epochs
                 self.save_model(save_path=f'epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    # Load the weights from checkpoint / pretrained models
-    def load_weights(self, weights_path):
-        self.model.load_state_dict(torch.load(weights_path))
+    def train_dae(self, n_epochs=100, log_frequency=100, notebook=True):
+
+        for epoch in range(n_epochs):
+
+            self.dae.train()
+
+            if notebook:
+                from tqdm.notebook import tqdm as tqdm_notebook
+                tqdm = tqdm_notebook
+
+            train_loss = 0.0
+
+            for batch_idx, low_light_image in enumerate(tqdm(self.train_loader)):
+                low_light_image = low_light_image.cuda()
+
+                # Forward pass
+                denoised_image = self.dae(low_light_image)
+
+                # Compute loss
+                loss = torch.nn.MSELoss()(denoised_image, low_light_image)
+
+                # Backpropagation
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                train_loss += loss.item()
+
+            self.dae.eval()
+
+            val_loss = 0.0
+
+            with torch.no_grad():
+                for batch_idx, low_light_image in enumerate(tqdm(self.val_loader)):
+                    low_light_image = low_light_image.to(self.device)
+
+                    denoised_image = self.dae(low_light_image)
+
+                    loss = torch.nn.MSELoss()(denoised_image, low_light_image)
+
+                    val_loss += loss.item()
+
+            if epoch % 20 == 0:
+                train_loss = train_loss / len(self.train_loader)
+                val_loss = val_loss / len(self.val_loader)
+                print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+
+                self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+
+    def train_enhanced_model(self, n_epochs=200, log_frequency=100, notebook=True):
+
+        for epoch in range(n_epochs):
+
+            self.enhanced_model.train()
+
+            if notebook:
+                from tqdm.notebook import tqdm as tqdm_notebook
+                tqdm = tqdm_notebook
+
+            train_losses = 0.0
+
+            for batch_idx, lowlight_image in enumerate(tqdm(self.train_loader)):
+                low_light_image = low_light_image.cuda()
+
+                enhanced_image_1, enhanced_image_final, A = self.enhanced_model(lowlight_image)
+
+                loss_col = 5 * torch.mean(self.color_loss(enhanced_image_final))
+                loss_exp = 10 * torch.mean(self.exposure_loss(enhanced_image_final))
+                loss_tv = 200 * torch.mean(self.illumination_smoothing_loss(A))
+                loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, lowlight_image))
+
+                total_loss = loss_col + loss_exp + loss_tv + loss_spa
+
+                self.optimizer.zero_grad()
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.enhanced_model.parameters(), 0.1)
+                self.optimizer.step()
+
+                train_losses += total_loss.item()
+
+            self.enhanced_model.eval()
+
+            val_losses = 0.0
+
+            with torch.no_grad():
+                for batch_idx, lowlight_image in enumerate(tqdm(self.val_loader)):
+                    lowlight_image = lowlight_image.to(self.device)
+
+                    enhanced_image_1, enhanced_image_final, A = self.enhanced_model(lowlight_image)
+
+                    loss_col = 5 * torch.mean(self.color_loss(enhanced_image_final))
+                    loss_exp = 10 * torch.mean(self.exposure_loss(enhanced_image_final))
+                    loss_tv = 200 * torch.mean(self.illumination_smoothing_loss(A))
+                    loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, lowlight_image))
+
+                    total_loss = loss_col + loss_exp + loss_tv + loss_spa
+
+                    val_losses += total_loss.item()
+
+            if epoch % 20 == 0:
+                train_losses = train_losses / len(self.train_loader)
+                val_losses = val_losses / len(self.val_loader)
+                print(f"Epoch {epoch} - Train Loss: {train_losses:.4f}, Validation Loss: {val_losses:.4f}")
+
+                self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+
 
     def save_model(self, save_path, save_dir="./models/checkpoints"):
         if not os.path.exists(save_dir):
