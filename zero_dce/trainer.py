@@ -59,6 +59,31 @@ class Trainer:
             num_workers=num_workers
         )
 
+    def load_dae_data(self, image_size=256, batch_size=8, num_workers=4, val_split=0.1):
+        conv4_features = self._extract_conv4_features()
+        noisy_features = self._add_noise(conv4_features)
+
+        dataset = TensorDataset(noisy_features, conv4_features)
+        val_size = int(val_split * len(dataset))
+        train_size = len(dataset) - val_size
+
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+        self.dae_train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+
+        self.dae_val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers
+        )
+
     def load_custom_data(self, dataset, batch_size=8, num_workers=4, val_split=0.1):
 
         if dataset is None:
@@ -220,14 +245,15 @@ class Trainer:
 
             train_loss = 0.0
 
-            for batch_idx, low_light_image in enumerate(tqdm(self.dae_train_loader)):
-                low_light_image = low_light_image.cuda()
+            for noisy_image, clean_image in self.dae_train_loader:
+                noisy_image = noisy_image.cuda()
+                clean_image = clean_image.cuda()
 
                 # Forward pass
-                denoised_image = self.dae(low_light_image)
+                denoised_image = self.dae(noisy_image)
 
                 # Compute loss
-                loss = torch.nn.MSELoss()(denoised_image, low_light_image)
+                loss = torch.nn.MSELoss()(denoised_image, clean_image)
 
                 # Backpropagation
                 self.optimizer.zero_grad()
@@ -241,12 +267,13 @@ class Trainer:
             val_loss = 0.0
 
             with torch.no_grad():
-                for batch_idx, low_light_image in enumerate(tqdm(self.dae_val_loader)):
-                    low_light_image = low_light_image.to(self.device)
+                for noisy_image, clean_image in self.dae_val_loader:
+                    noisy_image = noisy_image.cuda()
+                    clean_image = clean_image.cuda()
 
-                    denoised_image = self.dae(low_light_image)
+                    denoised_image = self.dae(noisy_image)
 
-                    loss = torch.nn.MSELoss()(denoised_image, low_light_image)
+                    loss = torch.nn.MSELoss()(denoised_image, clean_image)
 
                     val_loss += loss.item()
 
@@ -317,38 +344,13 @@ class Trainer:
 
                 self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    def load_dae_data(self, image_size=256, batch_size=8, num_workers=4, val_split=0.1):
-        conv4_features = self._extract_conv4_features()
-        noisy_features = self._add_noise(conv4_features)
-
-        dataset = TensorDataset(noisy_features, conv4_features)
-        val_size = int(val_split * len(dataset))
-        train_size = len(dataset) - val_size
-
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-
-        self.dae_train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            pin_memory=True
-        )
-
-        self.dae_val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers
-        )
-
 
     def _extract_conv4_features(self):
         if self.model is None:
             raise ValueError("Model is not built")
 
         if self.train_loader is None:
-            raise ValueError("Data loader is not loaded")
+            raise ValueError("Train data loader is not loaded")
 
         self.model.eval()
 
