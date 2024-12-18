@@ -1,5 +1,7 @@
 import os
 import torch
+import torch.nn as nn
+from torch.nn import functional as F
 import torchvision
 import numpy as np
 from PIL import Image
@@ -60,26 +62,26 @@ class Trainer:
         )
 
         # Load DAE data
-        conv4_features = self._extract_conv4_features(dataset)
-        noisy_features = self._add_noise(conv4_features)
+        # conv4_features = self._extract_conv4_features(dataset)
+        # noisy_features = self._add_noise(conv4_features)
 
-        dae_dataset = TensorDataset(noisy_features, conv4_features)
-        dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dae_dataset, [train_size, val_size])
+        # dae_dataset = TensorDataset(noisy_features, conv4_features)
+        # dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dae_dataset, [train_size, val_size])
 
-        self.dae_train_loader = DataLoader(
-            dae_train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            pin_memory=True
-        )
+        # self.dae_train_loader = DataLoader(
+        #     dae_train_dataset,
+        #     batch_size=batch_size,
+        #     shuffle=True,
+        #     num_workers=num_workers,
+        #     pin_memory=True
+        # )
 
-        self.dae_val_loader = DataLoader(
-            dae_val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers
-        )
+        # self.dae_val_loader = DataLoader(
+        #     dae_val_dataset,
+        #     batch_size=batch_size,
+        #     shuffle=False,
+        #     num_workers=num_workers
+        # )
 
     def load_custom_data(self, dataset, batch_size=8, num_workers=4, val_split=0.1):
 
@@ -229,8 +231,34 @@ class Trainer:
 
     def train_dae(self, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
 
-        if self.dae is None:
-            raise ValueError("Denoising Autoencoder is not built")
+        if self.dae or self.model is None:
+            raise ValueError("Model is not built")
+
+        if self.train_loader is None:
+            raise ValueError("Training data is not loaded")
+
+        image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
+        conv4_features = self._extract_conv4_features(self.model, image_loader)
+        noisy_features = self._add_noise(conv4_features)
+
+        dataset = TensorDataset(noisy_features, conv4_features)
+        train_size = int(0.9 * len(dataset))
+        val_size = len(dataset) - train_size
+        dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        self.dae_train_loader = DataLoader(
+            dae_train_dataset,
+            batch_size=32,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True
+        )
+
+        self.dae_val_loader = DataLoader(
+            dae_val_dataset,
+            batch_size=32,
+            shuffle=False,
+            num_workers=4
+        )
 
         optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate, weight_decay=weight_decay)
         criterion = nn.MSELoss(reduction="sum").cuda()
@@ -272,8 +300,6 @@ class Trainer:
                     clean_image = clean_image.cuda()
 
                     denoised_image = self.dae(noisy_image)
-
-                    print("Denoised ima")
 
                     loss = criterion(denoised_image, clean_image)
 
@@ -347,11 +373,10 @@ class Trainer:
                 self.save_model(save_path=f'enhanced_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
 
-    def _extract_conv4_features(self, dataset):
-        if self.model is None:
-            raise ValueError("Model is not built")
+    def _extract_conv4_features(self, model, dataset):
 
-        self.model.eval()
+        model.to(self.device)
+        model.eval()
 
         features = []
 
@@ -359,10 +384,10 @@ class Trainer:
             for lowlight_image in tqdm(dataset):
                 lowlight_image = lowlight_image.to(self.device)
 
-                x1 = self.model.conv1(lowlight_image)
-                x2 = self.model.conv2(x1)
-                x3 = self.model.conv3(x2)
-                x4 = self.model.conv4(x3)
+                x1 = model.conv1(lowlight_image)
+                x2 = model.conv2(x1)
+                x3 = model.conv3(x2)
+                x4 = model.conv4(x3)
                 features.append(x4.cpu())
 
         return torch.cat(features)
