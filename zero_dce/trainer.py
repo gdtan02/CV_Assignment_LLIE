@@ -404,15 +404,15 @@ class Trainer:
 
             train_losses = 0.0
 
-            for batch_idx, lowlight_image in enumerate(tqdm(self.train_loader)):
+            for batch_idx, low_light_image in enumerate(tqdm(self.train_loader)):
                 low_light_image = low_light_image.to(self.device)
 
-                enhanced_image_1, enhanced_image_final, A = self.enhanced_model(lowlight_image)
+                enhanced_image_1, enhanced_image_final, A = self.enhanced_model(low_light_image)
 
                 loss_col = 5 * torch.mean(self.color_loss(enhanced_image_final))
                 loss_exp = 10 * torch.mean(self.exposure_loss(enhanced_image_final))
                 loss_tv = 200 * torch.mean(self.illumination_smoothing_loss(A))
-                loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, lowlight_image))
+                loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, low_light_image))
 
                 total_loss = loss_col + loss_exp + loss_tv + loss_spa
 
@@ -428,15 +428,15 @@ class Trainer:
             val_losses = 0.0
 
             with torch.no_grad():
-                for batch_idx, lowlight_image in enumerate(tqdm(self.val_loader)):
-                    lowlight_image = lowlight_image.to(self.device)
+                for batch_idx, low_light_image in enumerate(tqdm(self.val_loader)):
+                    low_light_image = low_light_image.to(self.device)
 
-                    enhanced_image_1, enhanced_image_final, A = self.enhanced_model(lowlight_image)
+                    enhanced_image_1, enhanced_image_final, A = self.enhanced_model(low_light_image)
 
                     loss_col = 5 * torch.mean(self.color_loss(enhanced_image_final))
                     loss_exp = 10 * torch.mean(self.exposure_loss(enhanced_image_final))
                     loss_tv = 200 * torch.mean(self.illumination_smoothing_loss(A))
-                    loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, lowlight_image))
+                    loss_spa = torch.mean(self.spatial_consistency_loss(enhanced_image_final, low_light_image))
 
                     total_loss = loss_col + loss_exp + loss_tv + loss_spa
 
