@@ -128,9 +128,12 @@ class Trainer:
         else:
             raise ValueError("Model not built")
 
-    def build_dae(self):
+    def build_dae(self, pretrain_weights=None):
         self.dae = DenoisingAutoencoder()
         self.dae.apply(init_weights)
+
+        if pretrain_weights is not None:
+            self.dae.load_state_dict(torch.load(pretrain_weights))
 
         if self.dae is not None:
             print("DAE built successfully")
