@@ -116,12 +116,25 @@ class Trainer:
         )
 
     # Build the DCENet
-    def build_model(self, pretrain_weights=None):
+    def build_model(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
         self.model = DCENet().to(self.device)
         self.model.apply(init_weights)
 
         if pretrain_weights is not None:
             self.model.load_state_dict(torch.load(pretrain_weights))
+
+        # define the loss functions
+        self.color_loss = ColorConstancyLoss().to(self.device)
+        self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).to(self.device)
+        self.illumination_smoothing_loss = IlluminationSmoothnessLoss().to(self.device)
+        self.spatial_consistency_loss = SpatialConsistencyLoss().to(self.device)
+
+        # define the optimizer
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay
+        )
 
         if self.model is not None:
             print("Model built successfully")
@@ -141,7 +154,7 @@ class Trainer:
             raise ValueError("DAE not built")
 
     # Build the enhanced DCENet
-    def build_enhanced_model(self, pretrain_weights=None):
+    def build_enhanced_model(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
         dce_net = self.model
         dae = self.dae
 
@@ -151,15 +164,6 @@ class Trainer:
         if pretrain_weights is not None:
             self.enhanced_model(torch.load(pretrain_weights))
 
-        if self.enhanced_model is not None:
-            print("Enhanced model built successfully")
-        else:
-            raise ValueError("Enhanced model not built")
-
-    def compile(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
-        # build the model
-        self.build_model(pretrain_weights=pretrain_weights)
-
         # define the loss functions
         self.color_loss = ColorConstancyLoss().to(self.device)
         self.exposure_loss = ExposureControlLoss(patch_size=16, mean_val=0.6).to(self.device)
@@ -168,10 +172,16 @@ class Trainer:
 
         # define the optimizer
         self.optimizer = torch.optim.Adam(
-            self.model.parameters(),
+            self.enhanced_model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay
         )
+
+        if self.enhanced_model is not None:
+            print("Enhanced model built successfully")
+        else:
+            raise ValueError("Enhanced model not built")
+
 
     def train(self, n_epochs=200, log_frequency=100, notebook=True):
 
@@ -310,87 +320,6 @@ class Trainer:
 
             if epoch % 20 == 0:
                 self.save_model(self.dae, save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
-
-
-    # def train_dae(self, dce_net, n_epochs=100, log_frequency=100, learning_rate=0.0001, weight_decay=0.0001, notebook=True):
-    #
-    #     image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
-    #     conv4_features = self._extract_conv4_features(dce_net, image_loader)
-    #     noisy_features = self._add_noise(conv4_features)
-    #
-    #     dataset = TensorDataset(noisy_features, conv4_features)
-    #     train_size = int(0.9 * len(dataset))
-    #     val_size = len(dataset) - train_size
-    #     dae_train_dataset, dae_val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    #     self.dae_train_loader = DataLoader(
-    #         dae_train_dataset,
-    #         batch_size=32,
-    #         shuffle=True,
-    #         num_workers=4,
-    #         pin_memory=True
-    #     )
-    #
-    #     self.dae_val_loader = DataLoader(
-    #         dae_val_dataset,
-    #         batch_size=32,
-    #         shuffle=False,
-    #         num_workers=4
-    #     )
-    #
-    #     optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    #     criterion = nn.MSELoss(reduction="sum").to(self.device)
-    #
-    #     for epoch in range(n_epochs):
-    #
-    #         self.dae.train()
-    #
-    #         if notebook:
-    #             from tqdm.notebook import tqdm as tqdm_notebook
-    #             tqdm = tqdm_notebook
-    #
-    #         train_loss = 0.0
-    #
-    #         for noisy_image, clean_image in self.dae_train_loader:
-    #             noisy_image = noisy_image.to(self.device)
-    #             clean_image = clean_image.to(self.device)
-    #
-    #             print("noisy image shape: ", noisy_image.shape)
-    #             print("clean image shape: ", clean_image.shape)
-    #
-    #             # Forward pass
-    #             denoised_image = self.dae(noisy_image)
-    #
-    #             # Compute loss
-    #             loss = criterion(denoised_image, clean_image).to(self.device)
-    #
-    #             # Backpropagation
-    #             optimizer.zero_grad()
-    #             loss.backward()
-    #             optimizer.step()
-    #
-    #             train_loss += loss.item()
-    #
-    #         self.dae.eval()
-    #
-    #         val_loss = 0.0
-    #
-    #         with torch.no_grad():
-    #             for noisy_image, clean_image in self.dae_val_loader:
-    #                 noisy_image = noisy_image.to(self.device)
-    #                 clean_image = clean_image.to(self.device)
-    #
-    #                 denoised_image = self.dae(noisy_image)
-    #
-    #                 loss = criterion(denoised_image, clean_image)
-    #
-    #                 val_loss += loss.item()
-    #
-    #         if epoch % 20 == 0:
-    #             train_loss = train_loss / len(self.dae_train_loader)
-    #             val_loss = val_loss / len(self.dae_val_loader)
-    #             print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
-    #
-    #             self.save_model(save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
     def train_enhanced_model(self, n_epochs=200, log_frequency=100, notebook=True):
 
