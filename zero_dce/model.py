@@ -79,6 +79,7 @@ class DenoisingAutoencoder(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
+        return x
 
 class EnhancedDCENet(nn.Module):
     def __init__(self, dce_net=None, dae=None):
