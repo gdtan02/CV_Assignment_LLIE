@@ -315,9 +315,9 @@ class Trainer:
 
         torch.save(self.model.state_dict(), save_path)
 
-    def inference(self, image_path):
+    def evaluate(self, model, image_path):
 
-        self.model.eval()
+        model.eval()
 
         with torch.no_grad():
             lowlight_image = Image.open(image_path).convert("RGB")
@@ -328,7 +328,7 @@ class Trainer:
 
             lowlight_image = transform(lowlight_image).unsqueeze(0).cuda()
 
-            _, enhanced_image_final, _ = self.model(lowlight_image)
+            _, enhanced_image_final, _ = model(lowlight_image)
 
             enhanced_image_final = enhanced_image_final.squeeze(0).cpu().numpy().transpose(1, 2, 0)
 
