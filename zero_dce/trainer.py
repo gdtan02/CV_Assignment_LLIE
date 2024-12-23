@@ -312,7 +312,7 @@ class Trainer:
             print(f"Epoch {epoch+1}/{n_epochs}:")
             self.dae.train()
 
-            for noisy_image, clean_image in self.dae_train_loader:
+            for noisy_image, clean_image in tqdm(self.dae_train_loader, desc='Training', leave=False):
                 noisy_image = noisy_image.to(self.device)
                 clean_image = clean_image.to(self.device)
 
@@ -331,7 +331,7 @@ class Trainer:
             with torch.no_grad():
 
                 val_losses = 0.0
-                for noisy_image, clean_image in self.dae_val_loader:
+                for noisy_image, clean_image in tqdm(self.dae_val_loader, desc="Validation", leave=False):
                     noisy_image = noisy_image.to(self.device)
                     clean_image = clean_image.to(self.device)
 
