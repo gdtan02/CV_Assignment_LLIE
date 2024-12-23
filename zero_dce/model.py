@@ -59,26 +59,57 @@ class DCENet(nn.Module):
         r = torch.cat([r1, r2, r3, r4, r5, r6, r7, r8], dim=1)
         return enhanced_image_1, enhanced_image_final, r
 
+# We use convolutional layers instead of fully connected to build the denoising autoencoder as convolutions are more effective in capturing spatial information
+# The encoder part of the DAE consists of two convolutional layers with ReLU activation functions
+# in_channels = 3 is used to process RGB images input, out_channels=16 and out_channels=32 are the number of output channels of the first and second convolutional layers, respectively
+# stride = 2 is used to downsample the feature mpas by a factor of 2 in each dimension after each convolution.
+
 class DenoisingAutoencoder(nn.Module):
     def __init__(self):
         super(DenoisingAutoencoder, self).__init__()
+        # Encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True)
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
         )
+        # Decoder
+        # kernel_size is set to 4 to upsample the reconstructed image back to the same size as original image
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(8, 16, kernel_size=3, stride=1, padding=1),
+            nn.ConvTranspose2d(in_channels=32, out_channels=16, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.Sigmoid()
+            nn.ConvTranspose2d(in_channels=16, out_channels=3, kernel_size=4, stride=2, padding=1),
+            nn.Sigmoid()  # Normalize the output to the range [0, 1]
         )
 
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
+
+
+
+# class DenoisingAutoencoder(nn.Module):
+#     def __init__(self):
+#         super(DenoisingAutoencoder, self).__init__()
+#         self.encoder = nn.Sequential(
+#             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(inplace=True)
+#         )
+#         self.decoder = nn.Sequential(
+#             nn.ConvTranspose2d(8, 16, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(inplace=True),
+#             nn.ConvTranspose2d(16, 32, kernel_size=3, stride=1, padding=1),
+#             nn.Sigmoid()
+#         )
+#
+#     def forward(self, x):
+#         x = self.encoder(x)
+#         x = self.decoder(x)
+#         return x
 
 class EnhancedDCENet(nn.Module):
     def __init__(self, dce_net=None, dae=None):
