@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
@@ -115,6 +116,38 @@ class Trainer:
             num_workers=num_workers
         )
 
+    def load_noisy_data(self, dataset, batch_size=8, num_workers=4, val_split=0.1):
+
+        if dataset is None:
+            raise ValueError("Please provide the datasets")
+
+        if val_split < 0 or val_split > 1:
+            raise ValueError("Validation split must be between 0 and 1")
+
+        dataset_size = len(dataset)
+        print("Dataset size: ", len(dataset))
+        val_size = int(val_split * dataset_size)
+        train_size = dataset_size - val_size
+        print("Train size: ", train_size)
+        print("Validation size: ", val_size)
+
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+        self.dae_train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True
+        )
+
+        self.dae_val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers
+        )
+
     # Build the DCENet
     def build_model(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
         self.model = DCENet().to(self.device)
@@ -155,8 +188,9 @@ class Trainer:
 
     # Build the enhanced DCENet
     def build_enhanced_model(self, pretrain_weights=None, learning_rate=0.0001, weight_decay=0.0001):
-        dce_net = self.model
-        dae = self.dae
+        dce_net = DCENet().load_state_dict(torch.load("models/checkpoints/model200_dark_faces.pth"))
+
+        dae = DenoisingAutoencoder().load_state_dict(torch.load("models/checkpoints/dae_model_epoch50.pth"))
 
         self.enhanced_model = EnhancedDCENet(dce_net, dae).to(self.device)
         self.enhanced_model.apply(init_weights)
@@ -254,72 +288,73 @@ class Trainer:
                 # Save the model checkpoints every 20 epochs
                 self.save_model(save_path=f'epoch_{epoch}.pth', save_dir='./models/checkpoints')
 
-    def train_dae(self, n_epochs=10, learning_rate=0.001, notebook=True):
+    def train_dae(self, n_epochs=100, learning_rate=0.001, early_stopping=None, notebook=False):
 
         if self.dae is None:
             raise ValueError("Model is not built")
 
-        image_loader = DataLoader(self.train_loader.dataset, batch_size=32, shuffle=True)
-        conv4_features = self.extract_conv4_features(self.model, image_loader)
-        noisy_features = self.add_noise(conv4_features)
-
-        dataset = TensorDataset(noisy_features, conv4_features)
-        train_size = int(0.9 * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-
-        self.dae.to(self.device)
-
-        criterion = nn.MSELoss()
+        criterion = nn.MSELoss(reduction='sum').to(self.device)
         optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate)
 
-        if notebook:
-            from tqdm.notebook import tqdm as tqdm_notebook
-            tqdm = tqdm_notebook
-        else:
-            from tqdm import tqdm
+        # early stopping
+        best_val_loss = float('inf')
+        min_delta = 0.001
+        plateau = 0
 
         for epoch in range(n_epochs):
-            train_loss = 0.0
+
+            train_losses = 0.0
+            print(f"Epoch {epoch+1}/{n_epochs}:")
             self.dae.train()
 
-            for noisy_image, clean_image in train_loader:
+            for noisy_image, clean_image in self.dae_train_loader:
                 noisy_image = noisy_image.to(self.device)
                 clean_image = clean_image.to(self.device)
 
-                outputs = self.dae(noisy_image)
-                loss = criterion(outputs, clean_image)
+                reconstructed_image = self.dae(noisy_image)
+
+                loss = criterion(reconstructed_image, clean_image)
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                train_loss += loss.item()
+                train_losses += loss.item()
 
             self.dae.eval()
 
-            val_loss = 0.0
-
             with torch.no_grad():
-                for noisy_image, clean_image in val_loader:
-                    noisy_image = noisy_image.cuda()
-                    clean_image = clean_image.cuda()
 
-                    denoised_image = self.dae(noisy_image)
+                val_losses = 0.0
+                for noisy_image, clean_image in self.dae_val_loader:
+                    noisy_image = noisy_image.to(self.device)
+                    clean_image = clean_image.to(self.device)
 
-                    loss = criterion(denoised_image, clean_image)
+                    reconstructed_image = self.dae(noisy_image)
 
-                    val_loss += loss.item()
+                    loss = criterion(reconstructed_image, clean_image)
 
-            train_loss = train_loss / len(train_loader)
-            val_loss = val_loss / len(val_loader)
-            print(f"Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+                    val_losses += loss.item()
 
-            if epoch % 20 == 0:
-                self.save_model(self.dae, save_path=f'dae_epoch_{epoch}.pth', save_dir='./models/checkpoints')
+            train_loss = train_losses / len(self.dae_train_loader)
+            val_loss = val_losses / len(self.dae_val_loader)
+
+            print(f"Epoch [{epoch+1}/{n_epochs}] - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+
+            if val_loss < best_val_loss - min_delta:
+                best_val_loss = val_loss
+                plateau = 0
+            else:
+                plateau += 1
+
+            if early_stopping is not None and plateau >= early_stopping:
+                print(f"Early stopping triggered at {epoch+1} epoch.")
+                self.save_model(self.dae, save_path='dae_model.pth', save_dir='./models/checkpoints')
+                break
+
+            if (epoch+1) % 10 == 0:
+                self.save_model(self.dae, save_path=f'dae_model_epoch_{epoch+1}.pth', save_dir='./models/checkpoints')
+
 
     def train_enhanced_model(self, n_epochs=200, log_frequency=100, notebook=True):
 

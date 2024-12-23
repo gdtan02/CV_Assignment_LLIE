@@ -1,5 +1,6 @@
 import os
 import torch
+import torchvision
 import gdown
 import rarfile
 import numpy as np
@@ -89,3 +90,13 @@ def plot_result(image, enhanced, notebook=False):
         save_path = os.path.join(os.getcwd(), "outputs", "output.png")
 
         plt.savefig(save_path)  # Save the figure as a file
+
+def add_noise(image, noise_type='gaussian', noise_factor=0.1):
+    transform_to_tensor = torchvision.transforms.ToTensor()
+    image = transform_to_tensor(image)
+
+    # if noise_type == 'gaussian'
+    noise = torch.randn(image.size()) * noise_factor
+    noisy_image = image + noise
+
+    return noisy_image
