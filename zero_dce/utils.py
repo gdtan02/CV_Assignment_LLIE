@@ -105,5 +105,4 @@ def add_noise(image, noise_type='gaussian', noise_factor=0.1):
 def init_wandb(project_name, experiment_name, api_key):
     if project_name is not None and experiment_name is not None and api_key is not None:
         os.environ["WANDB_API_KEY"] = api_key
-        wandb.login(api_key)
         wandb.init(project_name, experiment_name)

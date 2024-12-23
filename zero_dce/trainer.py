@@ -294,6 +294,8 @@ class Trainer:
         if self.dae is None:
             raise ValueError("Model is not built")
 
+        self.dae.to(self.device)
+
         wandb.watch(self.dae)
 
         criterion = nn.MSELoss(reduction='sum').to(self.device)
