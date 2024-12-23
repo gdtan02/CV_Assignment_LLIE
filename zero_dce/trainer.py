@@ -1,4 +1,5 @@
 import os
+import wandb
 import numpy as np
 import torch
 import torch.nn as nn
@@ -293,6 +294,8 @@ class Trainer:
         if self.dae is None:
             raise ValueError("Model is not built")
 
+        wandb.watch(self.dae)
+
         criterion = nn.MSELoss(reduction='sum').to(self.device)
         optimizer = torch.optim.Adam(self.dae.parameters(), lr=learning_rate)
 
@@ -338,6 +341,8 @@ class Trainer:
 
             train_loss = train_losses / len(self.dae_train_loader)
             val_loss = val_losses / len(self.dae_val_loader)
+
+            wandb.log({'Train Loss': train_loss, 'Validation Loss': val_loss})
 
             print(f"Epoch [{epoch+1}/{n_epochs}] - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
 
