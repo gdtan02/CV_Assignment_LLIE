@@ -164,3 +164,9 @@ cython_debug/
 # Dataset and model outputs
 /data/
 /outputs/
+
+# macOS
+.DS_Store
+notebooks/.DS_Store
+.virtual_documents/
+notebooks/CV_Assignment_LLIE/
